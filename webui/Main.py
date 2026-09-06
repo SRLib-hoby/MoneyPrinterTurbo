@@ -65,7 +65,7 @@ from app.services import task as tm
 from app.services import version_checker
 from app.utils.logging_utils import configure_terminal_logger
 from app.utils import utils
-from webui.studio_tools import render_image_studio, render_stitch_studio
+from webui.studio_tools import render_image_studio, render_stitch_studio, render_library
 
 st.set_page_config(
     page_title="青智焕新",
@@ -1806,6 +1806,8 @@ def _render_generation_task_snapshot(task_id, task):
         return
 
     st.success(tr("Video Generation Completed"))
+    if task.get("persistence_status") == "failed":
+        st.warning("作品已生成，但尚未保存到 R2。请先下载，并在作品库重试保存。 / Generated locally but not saved to R2. Download now and retry saving in the library.")
     for warning in task.get("warnings") or []:
         if isinstance(warning, Mapping) and warning.get("code") == "sonilo_bgm_failed":
             st.warning(
@@ -7026,13 +7028,21 @@ def _render_application():
     if st.session_state.get("settings_dialog_open", False):
         _render_settings_dialog()
 
-    if os.environ.get("QINGZHI_EPHEMERAL_STORAGE") == "1":
+    if os.environ.get("QINGZHI_PERSISTENCE") == "r2":
+        st.caption("R2 持久化已启用。作品与任务可在作品库恢复；重启会中断未完成的生成。 / R2 persistence enabled. Open the library to recover media and tasks; restarts interrupt unfinished generation.")
+        pending, _ = sm.state.get_all_tasks(1, 50)
+        if any(task.get("persistence_status") == "failed" for task in pending):
+            st.warning("部分任务尚未同步到 R2，请在作品库重试保存并及时下载。 / Some tasks are not synced to R2; retry saving in the library and download local results.")
+    elif os.environ.get("QINGZHI_EPHEMERAL_STORAGE") == "1":
         st.info("云端临时工作区：请及时下载作品并导出设置。容器休眠或更新后，本地文件与任务记录会清空。 / Temporary cloud workspace: download your work and export settings before the container sleeps or updates.")
     mode = st.segmented_control(
         "创作模式 / Creation mode",
-        ["视频创作 / Video", "图片创作 / Images", "视频拼接 / Stitch"],
+        ["视频创作 / Video", "图片创作 / Images", "视频拼接 / Stitch", "作品与任务 / Library"],
         default="视频创作 / Video", key="qingzhi_studio_mode", selection_mode="single",
     )
+    if mode == "作品与任务 / Library":
+        render_library()
+        return
     if mode == "图片创作 / Images":
         render_image_studio()
         _save_runtime_config()

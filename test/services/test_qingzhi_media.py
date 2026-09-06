@@ -187,3 +187,17 @@ def test_deepseek_server_secret_used_without_persisting(monkeypatch):
     assert result == "script result"
     assert constructor.call_args.kwargs["api_key"] == "deepseek-server-secret"
     assert "deepseek_api_key" not in settings
+
+
+def test_paid_task_checkpoint_precedes_polling_and_failure_retains_id():
+    checkpoint = Mock(side_effect=RuntimeError("storage offline"))
+    with (
+        patch.object(media.requests, "post", return_value=response({"task_id": "paid-1"})) as post,
+        patch.object(media.requests, "get") as get,
+    ):
+        with pytest.raises(media.MiniMaxUnconfirmedTaskError) as caught:
+            media.generate_videos("scene", 6, on_submitted=checkpoint)
+    checkpoint.assert_called_once_with("paid-1")
+    assert caught.value.task_id == "paid-1"
+    post.assert_called_once()
+    get.assert_not_called()

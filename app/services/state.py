@@ -1,5 +1,6 @@
 import ast
 import copy
+import os as _os
 import threading
 from abc import ABC, abstractmethod
 
@@ -242,3 +243,13 @@ state = (
     if _enable_redis
     else MemoryState()
 )
+
+# One R2-backed journal per trusted-owner container. Redis and R2 must not both
+# own task state; fail closed rather than silently falling back to memory.
+if _os.environ.get("QINGZHI_PERSISTENCE") == "r2":
+    if _enable_redis:
+        raise RuntimeError("Choose R2 or Redis task state, not both")
+    from app.services.persistent_state import R2State, R2Store
+    from app.utils import utils as _utils
+
+    state = R2State(R2Store.from_environment(), _utils.storage_dir())

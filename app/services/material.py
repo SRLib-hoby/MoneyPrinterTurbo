@@ -2294,8 +2294,13 @@ def _download_minimax_media_on_demand(
                     prompt=term, video_aspect=video_aspect, save_dir=material_directory,
                 )
             else:
+                from app.services import state as sm
+                checkpoint = {}
+                if hasattr(sm.state, "record_provider_task"):
+                    checkpoint["on_submitted"] = lambda remote_id: sm.state.record_provider_task(task_id, remote_id)
                 items = minimax_media.generate_videos(
                     search_term=term, minimum_duration=clip_duration, video_aspect=video_aspect,
+                    **checkpoint,
                 )
             if not items:
                 raise minimax_media.MiniMaxMediaError("MiniMax returned no generated material")

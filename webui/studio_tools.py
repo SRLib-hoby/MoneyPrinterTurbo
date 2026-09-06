@@ -6,8 +6,11 @@ from uuid import uuid4
 import streamlit as st
 
 from app.config import config
+from app.models import const
 from app.models.schema import VideoAspect
 from app.services import minimax_media, stitching
+from app.services import state as sm
+from app.services.persistent_state import PersistenceError
 from app.utils import utils
 
 
@@ -57,16 +60,35 @@ def render_image_studio():
                     )
                 else:
                     try:
+                        folder = _folder("images")
+                        sm.state.update_task(
+                            folder.name, kind="image", video_subject=prompt.strip()
+                        )
                         with st.spinner("正在生成图片 / Generating image…"):
                             items = minimax_media.generate_images(
                                 prompt.strip(),
                                 VideoAspect(aspect),
-                                str(_folder("images")),
+                                str(folder),
                             )
                         st.session_state["qingzhi_image_results"] = [
                             item.url for item in items
                         ]
-                    except minimax_media.MiniMaxMediaError as exc:
+                        sm.state.update_task(
+                            folder.name,
+                            state=const.TASK_STATE_COMPLETE,
+                            progress=100,
+                            kind="image",
+                            video_subject=prompt.strip(),
+                            images=[item.url for item in items],
+                        )
+                        _show_save_status(folder.name)
+                    except (
+                        minimax_media.MiniMaxMediaError,
+                        PersistenceError,
+                        OSError,
+                    ) as exc:
+                        if "folder" in locals():
+                            _fail_studio_task(folder.name, exc)
                         st.error(str(exc))
     for index, raw in enumerate(st.session_state.get("qingzhi_image_results", [])):
         path = Path(raw)
@@ -124,6 +146,11 @@ def render_stitch_studio():
             folder = _folder("stitches")
             paths = []
             try:
+                sm.state.update_task(
+                    folder.name,
+                    kind="stitch",
+                    video_subject="视频拼接 / Stitched video",
+                )
                 for index, file in enumerate(chosen):
                     path = folder / f"input-{index}{Path(file.name).suffix.lower()}"
                     path.write_bytes(file.getbuffer())
@@ -135,8 +162,18 @@ def render_stitch_studio():
                         paths, str(folder / "qingzhi-stitched.mp4"), aspect
                     )
                 st.session_state["qingzhi_stitch_result"] = result
+                sm.state.update_task(
+                    folder.name,
+                    state=const.TASK_STATE_COMPLETE,
+                    progress=100,
+                    kind="stitch",
+                    video_subject="视频拼接 / Stitched video",
+                    videos=[result],
+                )
                 st.success("拼接完成 / Stitching complete")
-            except (ValueError, OSError) as exc:
+                _show_save_status(folder.name)
+            except (ValueError, OSError, PersistenceError) as exc:
+                _fail_studio_task(folder.name, exc)
                 st.error(str(exc))
             finally:
                 for path in paths:
@@ -151,3 +188,114 @@ def render_stitch_studio():
             mime="video/mp4",
             key="qingzhi_stitch_download",
         )
+
+
+def _fail_studio_task(task_id, error):
+    try:
+        sm.state.update_task(task_id, state=const.TASK_STATE_FAILED, error=str(error))
+    except PersistenceError:
+        st.error(
+            "任务记录未同步，请保留本地文件。 / Task record not synced; keep local files."
+        )
+
+
+def _show_save_status(task_id):
+    task = sm.state.get_task(task_id) or {}
+    if task.get("persistence_status") == "failed":
+        st.warning(
+            "作品已生成，但尚未保存到 R2。请立即下载，并在作品库重试保存。 / Generated locally but not saved to R2. Download now and retry saving in the library."
+        )
+
+
+def render_library():
+    st.subheader("作品与任务 / Media and tasks")
+    persistent = hasattr(sm.state, "restore_task")
+    st.caption(
+        "作品与任务记录保存在私有 R2。打开作品时恢复本地缓存。 / Media and task records are saved in private R2; opening media restores the local cache."
+        if persistent
+        else "当前为本地会话记录。启用 R2 后可跨重启保存。 / Session history only; enable R2 to keep records across restarts."
+    )
+    page = int(st.number_input("页码 / Page", min_value=1, value=1, step=1))
+    tasks, total = sm.state.get_all_tasks(page, 12)
+    st.caption(f"{total} 个任务 / tasks")
+    if not tasks:
+        st.info("暂无任务 / No tasks yet")
+    for task in tasks:
+        task_id = task["task_id"]
+        with st.expander(task.get("video_subject") or task_id):
+            status = {
+                const.TASK_STATE_COMPLETE: "已完成 / Complete",
+                const.TASK_STATE_FAILED: "失败或中断 / Failed or interrupted",
+            }.get(task.get("state"), "处理中 / Processing")
+            st.write(status)
+            st.caption(task_id)
+            if task.get("provider_tasks"):
+                st.write(
+                    "MiniMax 远端任务 / Remote tasks: "
+                    + ", ".join(task["provider_tasks"])
+                )
+            if task.get("error"):
+                st.error(task["error"])
+            _show_save_status(task_id)
+            if persistent and task.get("persistence_status") == "failed":
+                if st.button("重试保存 / Retry save", key=f"r2_retry_{task_id}"):
+                    try:
+                        sm.state.retry_save(task_id)
+                        st.rerun()
+                    except PersistenceError as exc:
+                        st.error(str(exc))
+            if task.get("script"):
+                st.text_area(
+                    "脚本 / Script",
+                    task["script"],
+                    key=f"library_script_{task_id}",
+                    disabled=True,
+                )
+            if task.get("assets") or task.get("videos") or task.get("images"):
+                if st.button("打开作品 / Open media", key=f"r2_open_{task_id}"):
+                    try:
+                        if persistent:
+                            with st.spinner("正在恢复作品 / Restoring media…"):
+                                sm.state.restore_task(task_id)
+                        st.session_state[f"library_open_{task_id}"] = True
+                    except PersistenceError as exc:
+                        st.error(str(exc))
+                if st.session_state.get(f"library_open_{task_id}"):
+                    restored = sm.state.get_task(task_id) or {}
+                    for field in ("videos", "images"):
+                        for index, raw in enumerate(restored.get(field, [])):
+                            path = Path(raw)
+                            if not path.is_file():
+                                st.info(
+                                    "请重新打开作品恢复缓存。 / Open media again to restore the cache."
+                                )
+                                continue
+                            if field == "images":
+                                st.image(str(path), width=640)
+                            else:
+                                st.video(str(path))
+                            st.download_button(
+                                "下载 / Download",
+                                path.read_bytes(),
+                                file_name=path.name,
+                                key=f"library_download_{task_id}_{field}_{index}",
+                            )
+            if task.get("state") != const.TASK_STATE_PROCESSING:
+                confirm = st.checkbox(
+                    "确认永久删除任务及其云端作品 / Permanently delete task and cloud media",
+                    key=f"r2_confirm_{task_id}",
+                )
+                if st.button(
+                    "删除 / Delete", disabled=not confirm, key=f"r2_delete_{task_id}"
+                ):
+                    try:
+                        sm.state.delete_task(task_id)
+                        import shutil
+
+                        shutil.rmtree(
+                            Path(utils.task_dir()) / task_id, ignore_errors=True
+                        )
+                        st.session_state.pop(f"library_open_{task_id}", None)
+                        st.rerun()
+                    except PersistenceError as exc:
+                        st.error(str(exc))

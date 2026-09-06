@@ -221,6 +221,7 @@ def generate_videos(
     search_term: str,
     minimum_duration: int,
     video_aspect: VideoAspect = VideoAspect.portrait,
+    on_submitted=None,
 ) -> list[MaterialInfo]:
     """Submit one official H3 task and return its downloadable result."""
     api_key = get_api_key()
@@ -311,6 +312,14 @@ def generate_videos(
             "MiniMax accepted the submission without returning a task id"
         )
     logger.info(f"MiniMax paid task created: id={task_id}")
+    if on_submitted is not None:
+        try:
+            on_submitted(task_id)
+        except Exception:
+            raise MiniMaxUnconfirmedTaskError(
+                f"MiniMax task submitted but checkpoint failed; do not resubmit: id={task_id}",
+                task_id=task_id,
+            ) from None
 
     task = _wait_for_task(
         task_id=task_id,

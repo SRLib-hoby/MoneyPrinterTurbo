@@ -2,3 +2,9 @@
 APP_ACCESS_PASSWORD="replace-with-a-random-password-of-at-least-24-characters"
 DEEPSEEK_API_KEY=""
 MINIMAX_API_KEY=""
+
+# Private R2 bucket, with Object Read & Write credentials limited to this bucket.
+R2_ENDPOINT_URL="https://YOUR_ACCOUNT_ID.r2.cloudflarestorage.com"
+R2_BUCKET_NAME="qingzhi-huanxin"
+R2_ACCESS_KEY_ID=""
+R2_SECRET_ACCESS_KEY=""

@@ -41,7 +41,7 @@ npm run deploy
 
 Provide `APP_ACCESS_PASSWORD` (a random password of at least 24 characters), `DEEPSEEK_API_KEY`, and `MINIMAX_API_KEY`. All app routes are password protected for one trusted workspace owner.
 
-**Temporary storage:** container sleep, restart and deployment erase local files, history and settings. Download work and export settings promptly. Provider keys stored in Cloudflare Secrets survive restarts. This edition has no R2 persistence or multi-user isolation. Cloud uploads are limited to 90 MB per file. See [deployment details](docs/cloudflare.md).
+**R2 persistence:** Cloudflare stores media and task records in a private R2 bucket. Open the library to recover results after restart or retry failed saves without regenerating media. Interrupted tasks are marked failed; paid requests are never automatically resubmitted. Export settings separately. This remains a single-owner studio with a 90 MB cloud upload limit per file. See [deployment details](docs/cloudflare.md).
 
 ## Verify
 
