@@ -21,6 +21,7 @@ from app.services import (
     loomloom,
     material,
     metaso_minimax,
+    minimax_media,
     ofox,
     sonilo,
     subtitle,
@@ -780,6 +781,13 @@ def get_video_materials(
                 details=details,
             )
             return None
+        except minimax_media.MiniMaxMediaError as exc:
+            remote_task_id = str(exc.task_id or "").strip()
+            _mark_task_failed(
+                task_id, "materials", str(exc),
+                details={"minimax_task_id": remote_task_id} if remote_task_id else None,
+            )
+            return None
         if not downloaded_videos:
             _mark_task_failed(
                 task_id,
@@ -1323,6 +1331,15 @@ def _run_pipeline(
             task_id,
             "preflight",
             "Metaso MiniMax requires an API key",
+        )
+
+    if (
+        stop_at in {"materials", "video"}
+        and params.video_source in {"minimax_video", "minimax_image"}
+        and not minimax_media.is_enabled()
+    ):
+        return _mark_task_failed(
+            task_id, "preflight", "MiniMax requires an API key",
         )
 
     if (

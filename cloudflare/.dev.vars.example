@@ -1,0 +1,4 @@
+# Copy to .dev.vars for local development only. Never commit actual credentials.
+APP_ACCESS_PASSWORD="replace-with-a-random-password-of-at-least-24-characters"
+DEEPSEEK_API_KEY=""
+MINIMAX_API_KEY=""

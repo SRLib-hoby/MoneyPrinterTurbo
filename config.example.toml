@@ -1,4 +1,4 @@
-# MoneyPrinterTurbo configuration example.
+# 青智焕新 / Qingzhi Renewal configuration example (based on MoneyPrinterTurbo).
 # The app copies this file to config.toml on first run. Keep API keys and other
 # credentials in config.toml; do not commit your local config.toml.
 
@@ -75,7 +75,18 @@ tls_verify = true
 # "openai_image" generates one image per script keyword through any
 # OpenAI-compatible /images/generations endpoint (local ComfyUI/SD gateways
 # or cloud relays) and renders it into a video clip.
-video_source = "pexels"
+video_source = "minimax_video"
+
+# Official MiniMax: H3 generates videos; image-01 generates still images.
+# Sources: "minimax_video" or "minimax_image". Independent from Metaso keys.
+# Cloudflare/local deployments may use MINIMAX_API_KEY in the environment.
+minimax_media_api_key = ""
+minimax_media_base_url = "https://api.minimax.io"
+minimax_video_model = "MiniMax-H3"
+minimax_image_model = "image-01"
+minimax_resolution = "2K"
+minimax_poll_interval = 10
+minimax_run_timeout = 1800
 
 # API key lists support key rotation. Use straight ASCII double quotes and
 # separate multiple keys with commas, for example: ["key-1", "key-2"].
@@ -222,7 +233,7 @@ sonilo_timeout = 600
 # Provider definitions, default models, and default Base URLs are maintained in
 # app/models/llm_provider.py. Leave model_name and base_url empty to follow the
 # Registry defaults; only set them when you need an explicit override.
-llm_provider = "moonshot"
+llm_provider = "deepseek"
 
 # Kimi / Moonshot AI
 # API key: https://platform.kimi.com?track_id=track-2f5441d6ffd84c509dd079d78e9db5dc&aff=moneyprinterturbo
@@ -262,6 +273,7 @@ gemini_model_name = ""
 
 # DeepSeek
 # API key: https://platform.deepseek.com/api_keys
+# Alternatively set DEEPSEEK_API_KEY in the server environment.
 deepseek_api_key = ""
 deepseek_base_url = ""
 deepseek_model_name = ""

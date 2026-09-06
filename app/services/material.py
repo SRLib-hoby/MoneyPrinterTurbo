@@ -20,6 +20,7 @@ from app.models.schema import MaterialInfo, VideoAspect, VideoConcatMode
 from app.services import (
     material_cache,
     metaso_minimax,
+    minimax_media,
     ofox,
     task_artifacts,
     video,
@@ -1741,6 +1742,16 @@ def download_videos(
             max_clip_duration=max_clip_duration,
             material_directory=material_directory,
         )
+    if source in {"minimax_video", "minimax_image"}:
+        return _download_minimax_media_on_demand(
+            task_id=task_id,
+            search_terms=search_terms,
+            video_aspect=video_aspect,
+            audio_duration=audio_duration,
+            max_clip_duration=max_clip_duration,
+            material_directory=material_directory,
+            source=source,
+        )
     if source == "openai_image":
         # 与 WaveSpeed 相同的按需付费语义：文生图按张计费，逐段生成、凑够
         # 所需时长立即停止。生成结果是一次性的本地图片文件，也不参与 24
@@ -2237,6 +2248,82 @@ def _download_videos_metaso_minimax_on_demand(
 
     logger.success(f"generated and downloaded {len(video_paths)} Metaso MiniMax videos")
     _persist_material_sources(task_id, material_sources)
+    return video_paths
+
+
+
+def _download_minimax_media_on_demand(
+    *,
+    task_id: str,
+    search_terms: List[str],
+    video_aspect: VideoAspect,
+    audio_duration: float,
+    max_clip_duration: int,
+    material_directory: str,
+    source: str,
+) -> List[str]:
+    """Generate paid official MiniMax assets in script order, stopping on failure.
+
+    A generated image is rendered with the existing image-to-clip path. Video
+    URLs are downloaded without submitting again. Both sources share the existing
+    FFmpeg composition and preserve source records when a later asset fails.
+    """
+    try:
+        required_duration = float(audio_duration)
+    except (TypeError, ValueError) as exc:
+        raise minimax_media.MiniMaxMediaError("MiniMax audio duration must be finite") from exc
+    if not math.isfinite(required_duration):
+        raise minimax_media.MiniMaxMediaError("MiniMax audio duration must be finite")
+    if required_duration <= 0:
+        _persist_material_sources(task_id, [])
+        return []
+    try:
+        clip_duration = int(max_clip_duration)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise minimax_media.MiniMaxMediaError("MiniMax clip duration must be a positive integer") from exc
+    if isinstance(max_clip_duration, bool) or clip_duration != max_clip_duration or clip_duration <= 0:
+        raise minimax_media.MiniMaxMediaError("MiniMax clip duration must be a positive integer")
+    material_directory = material_directory or utils.task_dir(task_id)
+    video_paths: List[str] = []
+    material_sources: list[dict[str, Any]] = []
+    total_duration = 0.0
+    try:
+        for term in search_terms:
+            if source == "minimax_image":
+                items = minimax_media.generate_images(
+                    prompt=term, video_aspect=video_aspect, save_dir=material_directory,
+                )
+            else:
+                items = minimax_media.generate_videos(
+                    search_term=term, minimum_duration=clip_duration, video_aspect=video_aspect,
+                )
+            if not items:
+                raise minimax_media.MiniMaxMediaError("MiniMax returned no generated material")
+            for item in items:
+                info = item.source_info if isinstance(item.source_info, dict) else {}
+                remote_id = str(info.get("asset_id") or "")
+                if source == "minimax_image":
+                    item.duration = clip_duration
+                    saved_path = _render_openai_image_video(item.url, clip_duration)
+                else:
+                    saved_path = _save_generated_video_with_retry(item.url, material_directory, source)
+                if not saved_path:
+                    raise minimax_media.MiniMaxDownloadError(
+                        "MiniMax generated a paid asset but it could not be saved or rendered",
+                        task_id=remote_id,
+                    )
+                video_paths.append(saved_path)
+                try:
+                    material_sources.append(_material_source_record(item, saved_path))
+                except Exception as exc:
+                    logger.warning(f"could not prepare MiniMax source record: {type(exc).__name__}")
+                total_duration += min(clip_duration, item.duration)
+                if total_duration >= required_duration:
+                    break
+            if total_duration >= required_duration:
+                break
+    finally:
+        _persist_material_sources(task_id, material_sources)
     return video_paths
 
 

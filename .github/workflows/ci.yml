@@ -110,3 +110,20 @@ jobs:
           test/services/test_upload_post.py
           test/services/test_controller_video.py
           test/services/test_webui_task.py
+
+  cloudflare-check:
+    name: Cloudflare authentication and type checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: cloudflare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: cloudflare/package-lock.json
+      - run: npm ci
+      - run: npm run check

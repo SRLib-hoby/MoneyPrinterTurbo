@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "qingzhi-huanxin",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-06",
+  "dev": {"local_protocol": "https"},
+  "containers": [{
+    "class_name": "QingzhiContainer",
+    "image": "./Dockerfile",
+    "image_build_context": "..",
+    "instance_type": "standard-1",
+    "max_instances": 1
+  }],
+  "durable_objects": {"bindings": [{"name": "QINGZHI_CONTAINER", "class_name": "QingzhiContainer"}]},
+  "migrations": [{"tag": "v1", "new_sqlite_classes": ["QingzhiContainer"]}]
+}

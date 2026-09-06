@@ -28,3 +28,10 @@ logs/
 
 storage/
 config.toml
+
+# Cloudflare development state and credentials
+node_modules/
+**/node_modules/
+**/.wrangler/
+**/.dev.vars
+.git

@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 from time import perf_counter
 from typing import List
@@ -154,6 +155,9 @@ def _generate_response(prompt: str, app_config=None) -> str:
 
         logger.info(f"llm provider: {llm_provider}")
         api_key = runtime_app_config.get(provider.config_key("api_key"), "")
+        if llm_provider == "deepseek" and not api_key:
+            # Deployment secrets stay in the server environment, never config.toml.
+            api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
         configured_model = runtime_app_config.get(provider.config_key("model_name"), "")
         model_name = provider.resolve_model_name(configured_model)
         if configured_model and model_name != configured_model:

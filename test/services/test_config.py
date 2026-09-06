@@ -38,6 +38,8 @@ class TestConfigPersistence:
         assert example_config["listen_port"] == 8080
         assert example_config["log_level"] == "DEBUG"
         assert app_config["video_source"] in {
+            "minimax_video",
+            "minimax_image",
             "pexels",
             "pixabay",
             "coverr",

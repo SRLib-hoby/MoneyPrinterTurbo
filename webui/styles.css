@@ -105,9 +105,22 @@ div[class*="st-key-voice_mode_control"] [role="radiogroup"] > button p {
    这层容器上，才能稳定控制项目名和版本号的间距。 */
 .mpt-brand > span:first-child {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 0.65rem;
     min-width: 0;
+}
+
+.qingzhi-brand-logo {
+    width: 4.25rem;
+    height: 4.25rem;
+    flex: 0 0 auto;
+    border-radius: 0.8rem;
+    object-fit: contain;
+}
+
+@media (max-width: 600px) {
+    .qingzhi-brand-logo { width: 3.25rem; height: 3.25rem; }
+    .mpt-brand__name { font-size: 1.8rem !important; }
 }
 
 .mpt-brand__name {

@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import html
 import json
@@ -50,6 +51,7 @@ from app.services import (
     loomloom,
     material,
     metaso_minimax,
+    minimax_media,
     ofox,
     video,
     volcengine_seedance,
@@ -63,15 +65,16 @@ from app.services import task as tm
 from app.services import version_checker
 from app.utils.logging_utils import configure_terminal_logger
 from app.utils import utils
+from webui.studio_tools import render_image_studio, render_stitch_studio
 
 st.set_page_config(
-    page_title="MoneyPrinterTurbo",
-    page_icon="🤖",
+    page_title="青智焕新",
+    page_icon=os.path.join(root_dir, "resource", "public", "qingzhi-logo.png"),
     layout="wide",
     initial_sidebar_state="auto",
     menu_items={
-        "Report a bug": "https://github.com/harry0703/MoneyPrinterTurbo/issues",
-        "About": "# MoneyPrinterTurbo\nSimply provide a topic or keyword for a video, and it will "
+        "Report a bug": "https://github.com/SRLib-hoby/MoneyPrinterTurbo/issues",
+        "About": "# 青智焕新 · Qingzhi Renewal\nBased on MoneyPrinterTurbo. Simply provide a topic or keyword for a video, and it will "
         "automatically generate the video copy, video materials, video subtitles, "
         "and video background music before synthesizing a high-definition short "
         "video.\n\nhttps://github.com/harry0703/MoneyPrinterTurbo",
@@ -110,13 +113,14 @@ LOOMLOOM_MAX_POLL_FAILURES = 5
 VIDEO_SOURCE_GROUPS = {
     "stock_video": ("pexels", "pixabay", "coverr"),
     "ai_video": (
+        "minimax_video",
         "metaso_minimax",
         "loomloom",
         "volcengine_seedance",
         "wavespeed",
         "ofox",
     ),
-    "ai_image": ("openai_image",),
+    "ai_image": ("minimax_image", "openai_image"),
     "local": ("local",),
 }
 # Upload-Post 的 API Key 与发布用户分别在两个页面管理，并且发布用户名称
@@ -572,6 +576,7 @@ def _initialize_session_state():
         "volcengine_seedance_confirm_charge": False,
         "ofox_confirm_charge": False,
         "metaso_minimax_confirm_charge": False,
+        "minimax_confirm_charge": False,
         # AI 视频按素材段计费，默认只生成一段，用户确认效果后再主动增加数量。
         "loomloom_video_scene_count": _saved_ui_number(
             "loomloom_video_scene_count",
@@ -1504,15 +1509,17 @@ def _render_brand(available_update: str | None = None):
             f'aria-label="{update_label}" title="{update_label}">'
             f"{update_label}</a>"
         )
+    logo = base64.b64encode(Path(root_dir, "resource/public/qingzhi-logo.png").read_bytes()).decode("ascii")
     st.markdown(
         f"""
         <h1 class="mpt-brand">
-            <span class="mpt-brand__name">MoneyPrinterTurbo</span>
+            <img class="qingzhi-brand-logo" src="data:image/png;base64,{logo}" alt="青智焕新 Logo" />
+            <span class="mpt-brand__name">青智焕新</span>
             <a class="mpt-brand__version"
-               href="https://github.com/harry0703/MoneyPrinterTurbo"
+               href="https://github.com/SRLib-hoby/MoneyPrinterTurbo"
                target="_blank"
                rel="noopener noreferrer"
-               aria-label="Open MoneyPrinterTurbo on GitHub"
+               aria-label="Open 青智焕新 on GitHub"
                title="Open project on GitHub">v{html.escape(str(config.project_version))}</a>
             {update_link}
         </h1>
@@ -3167,6 +3174,8 @@ def _render_settings_dialog():
                     st.info(tips)
 
             st_llm_api_key = llm_api_key
+            if llm_provider == "deepseek" and os.environ.get("DEEPSEEK_API_KEY"):
+                llm_form_panel.caption("已配置服务器密钥 / Server API key configured; leave blank to use it.")
             if llm_provider_spec.show_api_key:
                 st_llm_api_key = llm_form_panel.text_input(
                     tr("API Key"),
@@ -3345,6 +3354,26 @@ def _render_settings_dialog():
             with st.container(border=True):
                 st.markdown(f"#### {tr('AI Video Generation APIs')}")
                 st.caption(tr("AI Video Generation APIs Help"))
+
+                st.markdown("**MiniMax 官方 / Official MiniMax**")
+                st.caption("H3 视频 · image-01 图片 / H3 video · image-01 images")
+                if os.environ.get("MINIMAX_API_KEY"):
+                    st.caption("已配置服务器密钥；输入框留空即可使用 / Server API key configured; leave blank to use it.")
+                official_key = st.text_input(
+                    "MiniMax API Key", value=str(config.app.get("minimax_media_api_key", "") or ""),
+                    type="password", key="minimax_media_api_key_input",
+                    help="使用 MiniMax 按量付费 API Key / Use a MiniMax pay-as-you-go API key.",
+                )
+                _set_runtime_config("app", "minimax_media_api_key", official_key.strip())
+                official_endpoint = st.selectbox(
+                    "MiniMax 服务区域 / API region",
+                    options=["https://api.minimax.io", "https://api.minimaxi.com"],
+                    index=1 if str(config.app.get("minimax_media_base_url", "")).startswith("https://api.minimaxi.com") else 0,
+                    key="minimax_api_region",
+                )
+                _set_runtime_config("app", "minimax_media_base_url", official_endpoint)
+                st.caption("视频模型：MiniMax-H3 · 2K · 4–15 秒；图片模型：image-01")
+                st.divider()
 
                 # 视频生成 Provider 按赞助商优先展示，赞助商内部顺序
                 # 与商务约定保持一致：秘塔、胜算云、火山引擎。
@@ -4446,6 +4475,8 @@ def _render_video_settings(panel, params):
                 (tr("Random"), "random"),
             ]
             video_source_labels = {
+                "minimax_video": "MiniMax H3 · 官方 / Official",
+                "minimax_image": "MiniMax image-01 · 图片 / Images",
                 "pexels": tr("Pexels"),
                 "pixabay": tr("Pixabay"),
                 "coverr": tr("Coverr"),
@@ -4458,7 +4489,7 @@ def _render_video_settings(panel, params):
                 "local": tr("Local file"),
             }
             saved_video_source_name = str(
-                config.app.get("video_source", "pexels") or "pexels"
+                config.app.get("video_source", "minimax_video") or "minimax_video"
             )
             params.video_source = grouped_selectbox(
                 tr("Video Source"),
@@ -4630,7 +4661,7 @@ def _render_video_settings(panel, params):
                         metaso_minimax.DEFAULT_MAX_DURATION_SECONDS + 1,
                     )
                 )
-                if params.video_source == "metaso_minimax"
+                if params.video_source in {"metaso_minimax", "minimax_video"}
                 else [2, 3, 4, 5, 6, 7, 8, 9, 10]
             )
             params.video_clip_duration = stable_selectbox(
@@ -4639,7 +4670,7 @@ def _render_video_settings(panel, params):
                 default_value=_saved_ui_choice(
                     "video_clip_duration",
                     video_clip_durations,
-                    5 if params.video_source == "metaso_minimax" else 3,
+                    5 if params.video_source in {"metaso_minimax", "minimax_video"} else 3,
                 ),
                 key="video_clip_duration_select",
                 help=tr("Clip Duration Help"),
@@ -4711,6 +4742,17 @@ def _render_video_settings(panel, params):
             else:
                 _set_runtime_config("app", "video_codec", selected_video_codec)
 
+            if params.video_source in {"minimax_video", "minimax_image"}:
+                st.caption(
+                    "H3 按脚本生成片段，再自动拼接成片 / H3 generates clips for automatic stitching."
+                    if params.video_source == "minimax_video" else
+                    "image-01 生成图片并转为视频片段 / image-01 generates images to use as video clips."
+                )
+                st.checkbox(
+                    "同意本次 MiniMax 生成费用 / Confirm MiniMax generation charges",
+                    key="minimax_confirm_charge",
+                    help="按文案或音频长度生成所需素材；按 MiniMax 账户实际计费。 / Required assets are billed by MiniMax.",
+                )
             if params.video_source == "loomloom":
                 _render_loomloom_video_settings(params)
 
@@ -6648,6 +6690,8 @@ def _render_generation_controls(
             st.stop()
 
         if params.video_source not in [
+            "minimax_video",
+            "minimax_image",
             "pexels",
             "pixabay",
             "coverr",
@@ -6662,6 +6706,16 @@ def _render_generation_controls(
             _remove_active_generation_task(task_id)
             st.error(tr("Please Select a Valid Video Source"))
             st.stop()
+
+        if params.video_source in {"minimax_video", "minimax_image"}:
+            if not minimax_media.is_enabled(config.snapshot_config_with_pending(config.app)):
+                _remove_active_generation_task(task_id)
+                st.error("请在设置中填写 MiniMax API Key / Configure your MiniMax API key in Settings.")
+                st.stop()
+            if not st.session_state.get("minimax_confirm_charge", False):
+                _remove_active_generation_task(task_id)
+                st.error("请确认本次 MiniMax 生成费用 / Confirm MiniMax generation charges.")
+                st.stop()
 
         if params.video_source == "pexels" and not config.app.get(
             "pexels_api_keys", ""
@@ -6971,6 +7025,22 @@ def _render_application():
 
     if st.session_state.get("settings_dialog_open", False):
         _render_settings_dialog()
+
+    if os.environ.get("QINGZHI_EPHEMERAL_STORAGE") == "1":
+        st.info("云端临时工作区：请及时下载作品并导出设置。容器休眠或更新后，本地文件与任务记录会清空。 / Temporary cloud workspace: download your work and export settings before the container sleeps or updates.")
+    mode = st.segmented_control(
+        "创作模式 / Creation mode",
+        ["视频创作 / Video", "图片创作 / Images", "视频拼接 / Stitch"],
+        default="视频创作 / Video", key="qingzhi_studio_mode", selection_mode="single",
+    )
+    if mode == "图片创作 / Images":
+        render_image_studio()
+        _save_runtime_config()
+        return
+    if mode == "视频拼接 / Stitch":
+        render_stitch_studio()
+        _save_runtime_config()
+        return
 
     if _apply_pending_settings_preset():
         st.success(tr("Settings Preset Imported"))
